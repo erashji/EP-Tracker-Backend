@@ -1,11 +1,14 @@
 const corsOptions = {
     origin: (origin, callback) => {
         // Allow requests from any origin that matches the pattern
-        const allowedOrigins = [
-            new RegExp('^' + (process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&') : 'http://localhost:3004') + '$'),
-            new RegExp('^' + (process.env.FRONTEND_URL_SECONDARY ? process.env.FRONTEND_URL_SECONDARY.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&') : 'http://0.0.0.0:3004') + '$')
-        ];
-        
+        const allowedOrigins = [];
+        if (process.env.FRONTEND_URL) {
+            allowedOrigins.push(new RegExp('^' + process.env.FRONTEND_URL.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&') + '$'));
+        }
+        if (process.env.FRONTEND_URL_SECONDARY) {
+            allowedOrigins.push(new RegExp('^' + process.env.FRONTEND_URL_SECONDARY.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&') + '$'));
+        }
+        // If no env set, allow nothing (no fallback to localhost)
         if (!origin || allowedOrigins.some(pattern => pattern.test(origin))) {
             callback(null, true);
         } else {
