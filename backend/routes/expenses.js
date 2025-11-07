@@ -11,6 +11,29 @@ const EmailService = require('../services/emailService');
 const { getExpenseStatusEmailTemplate, getExpenseSubmissionTemplate } = require('../utils/emailTemplates');
 const xlsx = require('xlsx'); // Add at top
 const { getExpenseResubmissionTemplate } = require('../utils/emailTemplates'); // Add at the top
+const AWS = require('aws-sdk');
+
+AWS.config.update({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION
+});
+const s3 = new AWS.S3();
+const S3_BUCKET = process.env.AWS_S3_BUCKET;
+
+const upload = multer({
+  storage: multer.memoryStorage()
+});
+
+function uploadToS3(file, folder) {
+  const params = {
+    Bucket: S3_BUCKET,
+    Key: `${folder}/${Date.now()}_${file.originalname}`,
+    Body: file.buffer,
+    ContentType: file.mimetype
+  };
+  return s3.upload(params).promise();
+}
 
 // Add at the top with other constants
 const EXPENSE_STATUS = {
@@ -29,29 +52,6 @@ const ALLOWANCE_SCOPES = {
   DAILY_NON_METRO: 'Daily Allowance Non-Metro',
   SITE_FIXED: 'Site Allowance'
 };
-
-// Configure multer for file upload
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    // Save receipts and PDFs in subfolders
-    let uploadDir = 'uploads';
-    if (file.fieldname === 'hotelReceipt' || file.fieldname === 'foodReceipt' || file.fieldname === 'travelReceipt') {
-      uploadDir = path.join('uploads', 'receipts');
-    } else if (file.fieldname === 'specialApproval') {
-      uploadDir = path.join('uploads', 'pdfs');
-    }
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
-});
-
-// Update multer config to accept hotelReceipt and foodReceipt
-const upload = multer({ storage: storage });
 
 // Add this helper function
 function getCriticalTabsForRole(role) {
@@ -913,16 +913,14 @@ router.post('/', auth, upload.fields([
     }
 
     // Only allow PDF for specialApproval
-    const specialApprovalPath = req.files?.specialApproval?.[0]?.path || null;
+    const specialApprovalPath = req.files?.specialApproval?.[0] ? await uploadToS3(req.files.specialApproval[0], 'pdfs') : null;
     if (req.files?.specialApproval?.[0] && path.extname(req.files.specialApproval[0].originalname).toLowerCase() !== '.pdf') {
-      // Remove uploaded file if not PDF
-      fs.unlinkSync(req.files.specialApproval[0].path);
       return res.status(400).json({ message: 'Special Approval must be a PDF file.' });
     }
 
     // Get file paths for hotel and food receipts
-    const hotelReceiptPath = req.files?.hotelReceipt?.[0]?.path || null;
-    const foodReceiptPath = req.files?.foodReceipt?.[0]?.path || null;
+    const hotelReceiptPath = req.files?.hotelReceipt?.[0] ? await uploadToS3(req.files.hotelReceipt[0], 'receipts') : null;
+    const foodReceiptPath = req.files?.foodReceipt?.[0] ? await uploadToS3(req.files.foodReceipt[0], 'receipts') : null;
 
     // Insert expense form
     const [expenseResult] = await connection.query(
@@ -937,7 +935,7 @@ router.post('/', auth, upload.fields([
         formData.emp_id,
         projectId,
         claimAmount, // <-- use recalculated value
-        req.files?.travelReceipt?.[0]?.path,
+        req.files?.travelReceipt?.[0] ? await uploadToS3(req.files.travelReceipt[0], 'receipts') : null,
         hotelReceiptPath,
         foodReceiptPath,
         specialApprovalPath // <-- new field
@@ -1270,9 +1268,8 @@ router.put('/:expenseId', auth, upload.fields([
     // -------------------------------------------------------------------------------
 
     // Only allow PDF for specialApproval
-    const specialApprovalPath = req.files?.specialApproval?.[0]?.path;
+    const specialApprovalPath = req.files?.specialApproval?.[0] ? await uploadToS3(req.files.specialApproval[0], 'pdfs') : null;
     if (req.files?.specialApproval?.[0] && path.extname(req.files.specialApproval[0].originalname).toLowerCase() !== '.pdf') {
-      fs.unlinkSync(req.files.specialApproval[0].path);
       return res.status(400).json({ message: 'Special Approval must be a PDF file.' });
     }
 
@@ -1314,7 +1311,7 @@ router.put('/:expenseId', auth, upload.fields([
       [
         projectData[0].project_id,
         claimAmount2, // <-- use recalculated value with new variable name
-        req.files?.travelReceipt?.[0]?.path,
+        req.files?.travelReceipt?.[0] ? await uploadToS3(req.files.travelReceipt[0], 'receipts') : null,
         specialApprovalPath, // <-- new field
         expenseId
       ]
