@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
+const AWS = require('aws-sdk');
 const authRoutes = require('./routes/auth');
 const expenseRoutes = require('./routes/expenses');
 const employeeRoutes = require('./routes/employees');
@@ -60,27 +61,29 @@ db.connect((err) => {
   devLog('Connected to MySQL database');
 });
 
-// File upload configuration
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    // Save receipts and PDFs in subfolders
-    let uploadDir = 'uploads';
-    if (file.fieldname === 'hotelReceipt' || file.fieldname === 'foodReceipt' || file.fieldname === 'travelReceipt') {
-      uploadDir = path.join('uploads', 'receipts');
-    } else if (file.fieldname === 'specialApproval') {
-      uploadDir = path.join('uploads', 'pdfs');
-    }
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
+// AWS S3 configuration
+AWS.config.update({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION
+});
+const s3 = new AWS.S3();
+const S3_BUCKET = process.env.AWS_S3_BUCKET;
+
+const upload = multer({
+  storage: multer.memoryStorage()
 });
 
-const upload = multer({ storage: storage });
+// S3 upload helper
+function uploadToS3(file, folder) {
+  const params = {
+    Bucket: S3_BUCKET, // Uses env variable for bucket name
+    Key: `${folder}/${Date.now()}_${file.originalname}`,
+    Body: file.buffer,
+    ContentType: file.mimetype
+  };
+  return s3.upload(params).promise();
+}
 
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -100,9 +103,18 @@ app.use('/api/allowance-rates', allowanceRoutes);
 // Submit expense form
 app.post('/api/expenses/submit', auth, upload.fields([
   { name: 'travelReceipt', maxCount: 1 }
-]), (req, res) => {
+]), async (req, res) => {
   const expenseData = req.body;
   const files = req.files;
+  let travelReceiptUrl = null;
+  if (files.travelReceipt) {
+    try {
+      const s3Result = await uploadToS3(files.travelReceipt[0], 'receipts');
+      travelReceiptUrl = s3Result.Location;
+    } catch (err) {
+      return res.status(500).json({ error: 'Error uploading to S3' });
+    }
+  }
 
   // Begin transaction
   db.beginTransaction(err => {
@@ -131,7 +143,7 @@ app.post('/api/expenses/submit', auth, upload.fields([
       expenseData.date_of_return_journey_from,
       expenseData.date_of_return_journey_to,
       expenseData.claim_amount,
-      files.travelReceipt ? files.travelReceipt[0].path : null
+      travelReceiptUrl
     ], (err, result) => {
       if (err) {
         return db.rollback(() => {
