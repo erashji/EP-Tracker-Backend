@@ -85,6 +85,11 @@ const upload = multer({ storage: storage });
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Health check route for root
+app.get('/', (req, res) => {
+  res.send('API is running');
+});
+
 // Register route handlers
 app.use('/api/auth', authRoutes);
 app.use('/api/expenses', expenseRoutes);
