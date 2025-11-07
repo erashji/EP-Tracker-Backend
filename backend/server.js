@@ -100,6 +100,95 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/allowance-rates', allowanceRoutes);
 
+// Submit expense form
+app.post('/api/expenses/submit', auth, upload.fields([
+  { name: 'travelReceipt', maxCount: 1 }
+]), async (req, res) => {
+  const expenseData = req.body;
+  const files = req.files;
+  let travelReceiptUrl = null;
+  if (files.travelReceipt) {
+    try {
+      const s3Result = await uploadToS3(files.travelReceipt[0], 'receipts');
+      travelReceiptUrl = s3Result.Location;
+    } catch (err) {
+      return res.status(500).json({ error: 'Error uploading to S3' });
+    }
+  }
+
+  // Begin transaction
+  db.beginTransaction(err => {
+    if (err) {
+      return res.status(500).json({ error: 'Transaction error' });
+    }
+
+    // Insert into expense_form table
+    const expenseQuery = `
+      INSERT INTO expense_form (
+        emp_id, food_scope, 
+        project_id, period_of_stay_from, period_of_stay_to,
+        date_of_journey_going_from, date_of_journey_going_to,
+        date_of_return_journey_from, date_of_return_journey_to,
+        claim_amount,
+        travel_receipt_path, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`;
+    db.query(expenseQuery, [
+      expenseData.emp_id,
+      expenseData.food_scope,
+      expenseData.project_id,
+      expenseData.period_of_stay_from,
+      expenseData.period_of_stay_to,
+      expenseData.date_of_journey_going_from,
+      expenseData.date_of_journey_going_to,
+      expenseData.date_of_return_journey_from,
+      expenseData.date_of_return_journey_to,
+      expenseData.claim_amount,
+      travelReceiptUrl
+    ], (err, result) => {
+      if (err) {
+        return db.rollback(() => {
+          res.status(500).json({ error: 'Error inserting expense data' });
+        });
+      }
+      const expenseId = result.insertId;
+
+      // Insert travel data
+      const travelData = JSON.parse(expenseData.travel_data);
+      const travelValues = travelData.map(travel => [
+        expenseId,
+        expenseData.emp_id,
+        travel.travel_date,
+        travel.from_location,
+        travel.to_location,
+        travel.mode_of_transport,
+        travel.fare_amount
+      ]);
+
+      const travelQuery = `
+        INSERT INTO travel_data (
+          expense_id, emp_id, travel_date, from_location, to_location,
+          mode_of_transport, fare_amount) VALUES ?`;
+      db.query(travelQuery, [travelValues], (err) => {
+        if (err) {
+          return db.rollback(() => {
+            res.status(500).json({ error: 'Error inserting travel data' });
+          });
+        }
+
+        // Commit transaction
+        db.commit(err => {
+          if (err) {
+            return db.rollback(() => {
+              res.status(500).json({ error: 'Error committing transaction' });
+            });
+          }
+          res.json({ message: 'Expense submitted successfully', expenseId });
+        });
+      });
+    });
+  });
+});
+
 // Search projects
 app.get('/api/expenses/projects/search', auth, (req, res) => {
   const query = req.query.query;
