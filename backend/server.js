@@ -11,7 +11,6 @@ const expenseRoutes = require('./routes/expenses');
 const employeeRoutes = require('./routes/employees');
 const adminRoutes = require('./routes/admin');
 const allowanceRoutes = require('./routes/allowance');
-import cors from "cors";
 
 const auth = require('./middleware/auth');
 const fs = require('fs');
@@ -25,12 +24,9 @@ function devLog(...args) {
   }
 }
 
-
-const allowedOrigin = process.env.FRONTEND_URL || "https://eptrackersed.vercel.app";
-
 // Use only the cors package, with correct config
 app.use(cors({
-  origin: allowedOrigin,
+  origin: [process.env.FRONTEND_URL, process.env.FRONTEND_URL_SECONDARY],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-jwt-token'],
@@ -39,7 +35,7 @@ app.use(cors({
 
 // Ensure CORS preflight requests are handled for all routes
 app.options('*', cors({
-  origin: allowedOrigin,
+  origin: [process.env.FRONTEND_URL, process.env.FRONTEND_URL_SECONDARY ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-jwt-token'],
@@ -95,11 +91,6 @@ app.use('/api/expenses', expenseRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/allowance-rates', allowanceRoutes);
-
-// Health check route for Vercel or general deployment
-app.get('/', (req, res) => {
-  res.status(200).send('API is running');
-});
 
 // Submit expense form
 app.post('/api/expenses/submit', auth, upload.fields([
