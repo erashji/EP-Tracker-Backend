@@ -92,6 +92,11 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/allowance-rates', allowanceRoutes);
 
+// Health check route for Vercel or general deployment
+app.get('/', (req, res) => {
+  res.status(200).send('API is running');
+});
+
 // Submit expense form
 app.post('/api/expenses/submit', auth, upload.fields([
   { name: 'travelReceipt', maxCount: 1 }
