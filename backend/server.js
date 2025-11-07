@@ -11,6 +11,7 @@ const expenseRoutes = require('./routes/expenses');
 const employeeRoutes = require('./routes/employees');
 const adminRoutes = require('./routes/admin');
 const allowanceRoutes = require('./routes/allowance');
+import cors from "cors";
 
 const auth = require('./middleware/auth');
 const fs = require('fs');
@@ -24,9 +25,12 @@ function devLog(...args) {
   }
 }
 
+
+const allowedOrigin = process.env.FRONTEND_URL || "https://eptrackersed.vercel.app";
+
 // Use only the cors package, with correct config
 app.use(cors({
-  origin: [process.env.FRONTEND_URL, process.env.FRONTEND_URL_SECONDARY],
+  origin: allowedOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-jwt-token'],
@@ -35,7 +39,7 @@ app.use(cors({
 
 // Ensure CORS preflight requests are handled for all routes
 app.options('*', cors({
-  origin: [process.env.FRONTEND_URL, process.env.FRONTEND_URL_SECONDARY ],
+  origin: allowedOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-jwt-token'],
